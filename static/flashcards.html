@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <title>📚 Flashcards Generator mit Gamification</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      .perspective { perspective: 1000px; }
+      .card {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        transform-style: preserve-3d;
+        transition: transform 0.8s;
+      }
+      .card.flipped { transform: rotateY(180deg); }
+      .card-front, .card-back {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        backface-visibility: hidden;
+        border-radius: 0.5rem;
+      }
+      .card-back { transform: rotateY(180deg); }
+    </style>
+  </head>
+  <body class="bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 min-h-screen font-sans text-gray-800">
+    <div class="max-w-7xl mx-auto py-10 px-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="col-span-2 bg-white rounded-lg shadow-lg p-6">
+        <div class="text-center mb-6">
+          <h1 class="text-4xl font-extrabold text-gray-800">📚 Flashcards Generator mit Gamification</h1>
+          <p class="text-lg text-gray-600 mt-2">Lerne spielerisch und sammle Punkte und Badges! 🚀</p>
+        </div>
+
+        <div class="flex flex-wrap justify-center gap-4 mb-6">
+          <button onclick="window.location.href='/'" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">Chat Modus</button>
+          <button onclick="window.location.href='/flashcards'" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">Flashcards</button>
+          <button onclick="window.location.href='/kprim'" class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition">KPRIM Quiz</button>
+          <button onclick="window.location.href='/lueckentext'" class="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition">Lückentext</button>
+          <button onclick="window.location.href='/challenge'" class="px-4 py-2 bg-pink-500 text-white rounded hover:bg-pink-600 transition">Challenge-Mode</button>
+        </div>
+
+        <form id="flashcardForm" class="space-y-4">
+          <div>
+            <label class="block font-medium mb-1">📄 PDF-Datei auswählen:</label>
+            <input type="file" name="file" id="file" accept=".pdf" class="border rounded px-3 py-2 w-full" required />
+          </div>
+          <div>
+            <label class="block font-medium mb-1">🔢 Anzahl der Flashcards:</label>
+            <input type="number" name="num_flashcards" id="num_flashcards" min="1" max="100" value="20" class="border rounded px-3 py-2 w-full" required />
+          </div>
+          <div>
+            <label class="block font-medium mb-1">🎯 Lern-Tiefe:</label>
+            <select name="depth" id="depth" class="border rounded px-3 py-2 w-full" required>
+              <option value="Basis">Basis</option>
+              <option value="Mittel">Mittel</option>
+              <option value="Vertieft">Vertieft</option>
+            </select>
+          </div>
+          <button type="submit" class="bg-blue-500 text-white px-6 py-3 rounded hover:bg-blue-600 transition w-full">🚀 Flashcards generieren</button>
+        </form>
+
+        <div id="result" class="mt-8 p-4 bg-gray-100 rounded text-gray-800 whitespace-pre-wrap"></div>
+        <button id="downloadCsvBtn" class="mt-4 bg-green-500 text-white px-6 py-3 rounded hover:bg-green-600 transition w-full hidden">📥 CSV herunterladen</button>
+
+        <div id="gameArea" class="mt-10"></div>
+      </div>
+
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold mb-4">🎯 Fortschritt</h2>
+        <p>Punkte: <span id="points">0</span></p>
+        <p id="badgeDisplay" class="mt-2 text-lg font-semibold text-yellow-600"></p>
+      </div>
+    </div>
+
+    <script>
+      const form = document.getElementById('flashcardForm');
+      const resultDiv = document.getElementById('result');
+      const downloadBtn = document.getElementById('downloadCsvBtn');
+      const gameArea = document.getElementById('gameArea');
+      const pointsDisplay = document.getElementById('points');
+      const badgeDisplay = document.getElementById('badgeDisplay');
+      let lastFlashcardsText = "";
+      let flashcards = [], currentCard = 0, points = 0;
+
+      const badges = [
+        { threshold: 5, label: '🥉 Starter' },
+        { threshold: 10, label: '🥈 Lern-Profi' },
+        { threshold: 20, label: '🥇 Mastermind' }
+      ];
+
+      function updateBadge() {
+        const badge = badges.reverse().find(b => points >= b.threshold);
+        badgeDisplay.innerText = badge ? `Badge: ${badge.label}` : '';
+      }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        resultDiv.innerText = '⏳ Generiere Flashcards... bitte warten!';
+        downloadBtn.classList.add('hidden');
+
+        const formData = new FormData(form);
+        const response = await fetch('http://' + window.location.host + '/generate_flashcards', { method: 'POST', body: formData });
+        const data = await response.json();
+
+        if (data.flashcards) {
+          lastFlashcardsText = data.flashcards;
+          parseFlashcards(lastFlashcardsText);
+          downloadBtn.classList.remove('hidden');
+        } else {
+          resultDiv.innerText = '⚠️ Fehler: ' + (data.error || 'Unbekannter Fehler.');
+        }
+      });
+
+      downloadBtn.addEventListener('click', async () => {
+        if (!lastFlashcardsText) return alert("❌ Keine Flashcards zum Download verfügbar!");
+        const formData = new FormData();
+        formData.append('flashcards', lastFlashcardsText);
+        const response = await fetch('http://' + window.location.host + '/download_flashcards_csv', { method: 'POST', body: formData });
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'flashcards.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } else {
+          alert("❌ Fehler beim Herunterladen der CSV-Datei.");
+        }
+      });
+
+      function parseFlashcards(text) {
+        flashcards = [];
+        currentCard = 0;
+        points = 0;
+        pointsDisplay.innerText = points;
+        badgeDisplay.innerText = '';
+        let question = "";
+        text.split('\n').forEach(line => {
+          if (line.toLowerCase().startsWith("frage")) {
+            question = line.replace(/frage[:]?/i, '').trim();
+          } else if (line.toLowerCase().startsWith("antwort") && question) {
+            const answer = line.replace(/antwort[:]?/i, '').trim();
+            flashcards.push({ frage: question, antwort: answer });
+            question = "";
+          }
+        });
+        showCard(0);
+      }
+
+      function showCard(index) {
+        if (index >= flashcards.length) {
+          gameArea.innerHTML = `<div class="text-center"><h2 class="text-2xl font-bold">🎉 Geschafft!</h2><p>Du hast ${points} von ${flashcards.length} richtig beantwortet!</p><button onclick="restart()" class="mt-4 bg-blue-500 text-white px-6 py-3 rounded hover:bg-blue-600 transition">🔁 Nochmal starten</button></div>`;
+          return;
+        }
+
+        gameArea.innerHTML = `
+          <div class="text-center">
+            <div class="relative w-80 h-48 mx-auto my-6 perspective">
+              <div class="card">
+                <div class="card-front flex items-center justify-center bg-blue-500 text-white text-xl rounded-lg p-4 cursor-pointer">${flashcards[index].frage}</div>
+                <div class="card-back flex items-center justify-center bg-green-500 text-white text-xl rounded-lg p-4 cursor-pointer">${flashcards[index].antwort}</div>
+              </div>
+            </div>
+            <div class="flex justify-center gap-4 mt-4">
+              <button onclick="handleAnswer(true)" class="bg-green-500 text-white px-6 py-3 rounded hover:bg-green-600 transition">✅ Richtig</button>
+              <button onclick="handleAnswer(false)" class="bg-red-500 text-white px-6 py-3 rounded hover:bg-red-600 transition">❌ Falsch</button>
+            </div>
+            <p class="mt-4">Karte ${index + 1} von ${flashcards.length} – Punkte: ${points}</p>
+          </div>`;
+
+        document.querySelector('.card').addEventListener('click', () => {
+          document.querySelector('.card').classList.toggle('flipped');
+        });
+      }
+
+      function handleAnswer(correct) {
+        if (correct) points++;
+        pointsDisplay.innerText = points;
+        updateBadge();
+        currentCard++;
+        showCard(currentCard);
+      }
+
+      function restart() {
+        currentCard = 0;
+        points = 0;
+        pointsDisplay.innerText = points;
+        badgeDisplay.innerText = '';
+        showCard(0);
+      }
+    </script>
+  </body>
+</html>

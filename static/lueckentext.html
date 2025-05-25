@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <title>📝 Prüfungsmodus: Lückentext</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      .correct { background-color: #34d399; }
+      .incorrect { background-color: #f87171; }
+    </style>
+  </head>
+  <body class="bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 min-h-screen font-sans text-gray-800">
+    <div class="max-w-7xl mx-auto py-10 px-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Linke Seite: Prüfungsmodus (Lückentext Quiz) -->
+      <div class="col-span-2 bg-white rounded-lg shadow-lg p-6">
+        <div class="text-center mb-6">
+          <h1 class="text-4xl font-extrabold text-gray-800">📝 Prüfungsmodus: Lückentext</h1>
+          <p class="text-lg text-gray-600 mt-2">Lerne aktiv mit Lückentexten und verbessere dein Verständnis! 🚀</p>
+        </div>
+
+        <!-- Modus Auswahl -->
+        <div class="flex flex-wrap justify-center gap-4 mb-6">
+          <button onclick="window.location.href='/'" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">Chat Modus</button>
+          <button onclick="window.location.href='/flashcards'" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">Flashcards</button>
+          <button onclick="window.location.href='/kprim'" class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition">KPRIM Quiz</button>
+          <button onclick="window.location.href='/lueckentext'" class="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition">Lückentext</button>
+          <button onclick="window.location.href='/challenge'" class="px-4 py-2 bg-pink-500 text-white rounded hover:bg-pink-600 transition">Challenge-Mode</button>
+        </div>
+
+        <!-- Erklärtext -->
+        <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 rounded">
+          <p class="font-semibold">📌 Wie funktioniert das Lückentext Quiz?</p>
+          <p>Ziehe die Begriffe oben in die passenden Lücken im Text.</p>
+          <p>⚡ Die Begriffe sind zufällig gemischt. Nach dem Platzieren erhältst du eine Erklärung und ein Beispiel.</p>
+          <p>🥇 Sammle Punkte und erhalte Badges für deine Leistung!</p>
+        </div>
+
+        <!-- PDF Upload -->
+        <form id="lueckentextForm" class="space-y-4">
+          <div>
+            <label class="block font-medium mb-1">📄 PDF-Datei auswählen (Aufgaben):</label>
+            <input type="file" name="file" id="file" accept=".pdf" class="border rounded px-3 py-2 w-full" required />
+          </div>
+          <div>
+            <label class="block font-medium mb-1">🔢 Anzahl Begriffe für Lücken:</label>
+            <input type="number" name="num_questions" id="num_questions" min="1" max="20" value="5" class="border rounded px-3 py-2 w-full" required />
+          </div>
+          <div>
+            <label class="block font-medium mb-1">🎚️ Schwierigkeitsgrad:</label>
+            <select name="difficulty" id="difficulty" class="border rounded px-3 py-2 w-full" required>
+              <option value="einfach">Einfach</option>
+              <option value="mittel" selected>Mittel</option>
+              <option value="schwer">Schwer</option>
+            </select>
+          </div>
+          <button type="submit" class="bg-blue-500 text-white px-6 py-3 rounded hover:bg-blue-600 transition w-full">🚀 Lückentext generieren</button>
+        </form>
+
+        <!-- Begriffe oben mittig -->
+        <div id="termsArea" class="flex flex-wrap justify-center gap-2 mt-8 mb-8"></div>
+
+        <!-- Ergebnisbereich -->
+        <div id="lueckentextArea" class="mt-8"></div>
+      </div>
+
+      <!-- Rechte Seite: Fortschritt + Badges -->
+      <div class="bg-white rounded-lg shadow-lg p-6 sticky top-10">
+        <h2 class="text-2xl font-bold mb-4">🎯 Dein Fortschritt</h2>
+        <p>Punkte: <span id="points">0</span></p>
+        <p id="badgeDisplay" class="mt-2 text-lg font-semibold text-yellow-600"></p>
+      </div>
+    </div>
+
+    <!-- JS für Drag & Drop + Punkte + Badges -->
+    <script>
+      let points = 0;
+      const badges = [
+        { threshold: 5, label: '🥉 Starter' },
+        { threshold: 10, label: '🥈 Lern-Profi' },
+        { threshold: 20, label: '🥇 Mastermind' }
+      ];
+
+      function updateBadge() {
+        const badge = [...badges].reverse().find(b => points >= b.threshold);
+        document.getElementById('badgeDisplay').innerText = badge ? `Badge: ${badge.label}` : '';
+      }
+
+      const form = document.getElementById('lueckentextForm');
+      const lueckentextArea = document.getElementById('lueckentextArea');
+      const termsArea = document.getElementById('termsArea');
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        lueckentextArea.innerHTML = '⏳ Generiere Lückentext... bitte warten!';
+        termsArea.innerHTML = '';
+
+        const formData = new FormData(form);
+        const response = await fetch('http://' + window.location.host + '/generate_lueckentext', { method: 'POST', body: formData });
+        const data = await response.json();
+
+        if (data.lueckentext && data.terms) {
+          lueckentextArea.innerHTML = data.lueckentext;
+          termsArea.innerHTML = data.terms.map(term => `<div draggable="true" class="term-item px-3 py-2 bg-blue-200 rounded cursor-pointer">${term}</div>`).join('');
+          enableDragDrop();
+        } else {
+          lueckentextArea.innerHTML = '⚠️ Fehler: ' + (data.error || 'Unbekannter Fehler.');
+        }
+      });
+
+      // Drag & Drop Möglichkeit
+      function enableDragDrop() {
+        const terms = document.querySelectorAll('.term-item');
+        const blanks = document.querySelectorAll('.blank');
+
+        terms.forEach(term => {
+          term.addEventListener('dragstart', e => e.dataTransfer.setData('text', term.textContent));
+        });
+
+        blanks.forEach(blank => {
+          blank.addEventListener('dragover', e => e.preventDefault());
+          blank.addEventListener('drop', e => {
+            e.preventDefault();
+            const draggedTerm = e.dataTransfer.getData('text');
+            blank.textContent = draggedTerm;
+            checkAnswer(blank, draggedTerm);
+          });
+        });
+      }
+
+      //Prüft Antwort
+      async function checkAnswer(blankElement, term) {
+        const response = await fetch('http://' + window.location.host + '/check_lueckentext', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ term, position: blankElement.dataset.position })
+        });
+        const result = await response.json();
+        if (result.correct) {
+          blankElement.classList.add('correct');
+          blankElement.classList.remove('incorrect');
+          blankElement.insertAdjacentHTML('afterend', `<div class="mt-2 text-sm text-gray-700"><strong>Definition:</strong> ${result.definition}<br><strong>Beispiel:</strong> ${result.example}</div>`);
+          points += 1;
+          document.getElementById('points').innerText = points;
+          updateBadge();
+        } else {
+          blankElement.classList.add('incorrect');
+          blankElement.classList.remove('correct');
+        }
+      }
+    </script>
+  </body>
+</html>

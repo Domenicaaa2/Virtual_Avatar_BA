@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Avatar Learning Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  </head>
+  <body class="bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 min-h-screen font-sans text-gray-800">
+    <div class="max-w-7xl mx-auto py-10 px-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Linke Seite: Avatar & Chat -->
+      <div class="col-span-2 bg-white rounded-lg shadow-lg p-6">
+        <div class="text-center mb-6">
+          <h1 class="text-4xl font-extrabold text-gray-800">🎉 Avatar Learning Assistant</h1>
+          <p class="text-lg text-gray-600 mt-2">Dein interaktiver Avatar für Lernen, Motivation und Gamification 🚀</p>
+        </div>
+
+        <!-- Mode Selection -->
+        <div class="flex flex-wrap justify-center gap-4 mb-6">
+          <button id="modeChat" data-mode="Chat Modus" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">Chat Modus</button>
+          <button id="modeFlashcards" data-mode="Flashcards" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">Flashcards</button>
+          <button id="modeKprim" data-mode="Kprim Quiz" class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition">Kprim Quiz</button>
+          <button id="modeLückentext" data-mode="Lückentext" class="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition">Lückentext</button>
+          <button id="modeChallenge" data-mode="Challenge-Mode" class="px-4 py-2 bg-pink-500 text-white rounded hover:bg-pink-600 transition">Challenge-Mode</button>
+        </div>
+
+        <div id="modeDescription" class="bg-gray-100 rounded-lg p-4 mb-6 text-center text-lg font-medium">
+          Du bist aktuell im <span class="font-bold text-blue-600">Chat Modus</span>: Stelle dem Avatar Fragen und erhalte direkt Antworten.
+        </div>
+
+        <!-- 🟢 Avatar Start Button -->
+        <div class="flex justify-center mb-4">
+          <button id="startAvatar" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">Avatar starten 🔊</button>
+        </div>
+
+        <!-- Chat Area -->
+        <div>
+          <div class="flex mb-4">
+            <input id="textInput" class="flex-grow border border-gray-300 p-3 rounded mr-2 focus:outline-none focus:ring-2 focus:ring-blue-400" type="text" placeholder="Deine Frage..." />
+            <button id="sendBtn" class="bg-blue-500 text-white px-6 py-3 rounded hover:bg-blue-600 transition">Senden</button>
+          </div>
+          <video id="mediaElement" autoplay playsinline muted class="w-full rounded-lg border"></video>
+          <div id="gptResponse" class="mt-4 p-4 bg-gray-100 rounded text-gray-800"></div>
+          <div id="keywordSummary" class="mt-4 p-4 bg-yellow-100 rounded text-gray-800 font-medium">
+            <strong>📌 Wichtige Begriffe:</strong> <span id="keywords"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Rechte Seite: Fortschritt, Badges, Profilbild -->
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold mb-4">🎯 Dein Fortschritt</h2>
+        <div class="mb-4">
+          <div class="text-sm mb-1">Punkte: <span id="points">0</span></div>
+          <div class="w-full bg-gray-200 rounded-full h-4">
+            <div id="progressBar" class="bg-green-500 h-4 rounded-full" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="mb-6">
+          <h3 class="font-semibold mb-2">🏅 Badges:</h3>
+          <div id="badges" class="flex flex-wrap gap-2"></div>
+        </div>
+
+        <div class="mb-6">
+          <h3 class="font-semibold mb-2">🖼️ Profilbild hochladen:</h3>
+          <input type="file" id="profileUpload" accept="image/*" class="block w-full text-sm text-gray-500" />
+          <div class="mt-4 text-center">
+            <img id="profilePic" src="static/default-profile.png" alt="Profilbild" class="w-32 h-32 rounded-full mx-auto border-2 border-gray-300 object-cover" />
+          </div>
+        </div>
+
+        <div id="motivation" class="mt-6 text-center text-green-600 font-bold"></div>
+      </div>
+    </div>
+
+    <!-- 🟢 Script -->
+    <script>
+      const ws = new WebSocket(`ws://${window.location.host}/ws/avatar`);
+      const video = document.getElementById("mediaElement");
+      const sendBtn = document.getElementById("sendBtn");
+      const textInput = document.getElementById("textInput");
+      const gptResponse = document.getElementById("gptResponse");
+      const keywords = document.getElementById("keywords");
+      const pointsDisplay = document.getElementById("points");
+      const progressBar = document.getElementById("progressBar");
+      const badgesDisplay = document.getElementById("badges");
+      const motivationDisplay = document.getElementById("motivation");
+      const profileUpload = document.getElementById("profileUpload");
+      const profilePic = document.getElementById("profilePic");
+      const startAvatarBtn = document.getElementById("startAvatar");
+
+      let room;
+      let currentMode = "Chat Modus";
+      let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+      const modeTexts = {
+        "Chat Modus": "Du bist aktuell im <span class='font-bold text-blue-600'>Chat Modus</span>: Stelle dem Avatar Fragen und erhalte direkt Antworten.",
+        "Flashcards": "Du bist aktuell im <span class='font-bold text-green-600'>Flashcard Modus</span>: Erstelle Lernkarten zu Themen deiner Wahl.",
+        "Kprim Quiz": "Du bist aktuell im <span class='font-bold text-yellow-600'>Kprim Quiz Modus</span>: Beantworte Multiple-Choice Fragen für maximalen Lernerfolg.",
+        "Lückentext": "Du bist aktuell im <span class='font-bold text-purple-600'>Lückentext Modus</span>: Fülle die Lücken und lerne aktiv mit Erklärungen vom Avatar.",
+        "Challenge-Mode": "Du bist aktuell im <span class='font-bold text-pink-600'>Challenge-Mode</span>: Lerne und vertiefe dein Wissen auf spielerische Art und Weise. Bist du der Challenge gewachsen?"
+      };
+
+      function updateMode(mode) {
+  if (mode === "Flashcards") {
+    window.location.href = "/flashcards";
+  } else if (mode === "Kprim Quiz") {
+    window.location.href = "/kprim";  // ✅ Hier ist die fehlende Weiterleitung
+  } else if (mode === "Lückentext") {
+    window.location.href = "/lueckentext";
+  } else if (mode === "Challenge-Mode") {
+    window.location.href = "/challenge";
+  } else {
+    currentMode = mode;
+    document.getElementById("modeDescription").innerHTML = modeTexts[mode];
+  }
+}
+
+
+["modeChat", "modeFlashcards", "modeKprim", "modeLückentext", "modeChallenge"].forEach(id => {
+  document.getElementById(id).addEventListener("click", (e) => {
+    const mode = e.target.dataset.mode;
+    updateMode(mode);
+  });
+});
+
+      function updateProgress(points) {
+        const maxPoints = 100;
+        const percent = Math.min((points / maxPoints) * 100, 100);
+        pointsDisplay.innerText = points;
+        progressBar.style.width = percent + "%";
+        const badges = [];
+        if (points >= 20) badges.push("🥉 Beginner");
+        if (points >= 50) badges.push("🥈 Fortgeschritten");
+        if (points >= 80) badges.push("🥇 Meister");
+        badgesDisplay.innerHTML = badges.map(b => `<span class='bg-yellow-300 text-black px-2 py-1 rounded'>${b}</span>`).join(" ");
+        motivationDisplay.innerText = points >= 10 && points % 10 === 0 ? "🎉 Super! Weiter so!" : "";
+      }
+
+      let points = localStorage.getItem("points") ? parseInt(localStorage.getItem("points")) : 0;
+      updateProgress(points);
+
+      startAvatarBtn.addEventListener("click", async () => {
+        await audioContext.resume();
+        video.muted = false;
+        console.log("✅ AudioContext resumed, Avatar ist bereit.");
+      });
+
+      ws.onmessage = async (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "config") {
+          const { livekit_url, token } = data;
+          if (room) await room.disconnect();
+          room = new LivekitClient.Room();
+          const mediaStream = new MediaStream();
+          video.srcObject = mediaStream;
+
+          room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+            console.log("🎉 Track subscribed from:", participant.identity);
+            if (track.kind === "video" || track.kind === "audio") {
+              mediaStream.addTrack(track.mediaStreamTrack);
+              video.srcObject = mediaStream;
+            }
+          });
+          
+          // Aufbau der WebRTC-Verbindung mit Token
+          await room.connect(livekit_url, token);
+          room.participants.forEach((participant) => {
+            for (const publication of participant.tracks.values()) {
+              if (publication.isSubscribed && publication.track && publication.track.mediaStreamTrack) {
+                mediaStream.addTrack(publication.track.mediaStreamTrack);
+              }
+            }
+          });
+        } else if (data.type === "gpt") {
+          gptResponse.innerText = `GPT Antwort: ${data.message}`;
+          keywords.innerText = data.keywords ? Object.keys(data.keywords).join(", ") : "Keine Schlüsselbegriffe gefunden.";
+          points += 5;
+          localStorage.setItem("points", points);
+          updateProgress(points);
+        } else if (data.type === "error") {
+          alert(`Fehler: ${data.message}`);
+        }
+      };
+
+      sendBtn.addEventListener("click", () => {
+  const message = textInput.value.trim();
+  if (message) {
+    ws.send(JSON.stringify({
+      data: message,
+      mode: currentMode,
+      type: "gpt" // 👉 NEU: explizit an GPT
+    }));
+    textInput.value = "";
+  }
+});
+
+      profileUpload.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            profilePic.src = e.target.result;
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+    </script>
+  </body>
+</html>

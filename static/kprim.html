@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>📝 Prüfungsmodus (KPRIM Quiz)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    .correct {
+      background-color: #34d399;
+    }
+
+    .incorrect {
+      background-color: #f87171;
+    }
+  </style>
+</head>
+
+<body class="bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 min-h-screen font-sans text-gray-800">
+  <div class="max-w-7xl mx-auto py-10 px-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+    <!-- Linke Seite: Prüfungsmodus (KPRIM Quiz) -->
+    <div class="col-span-2 bg-white rounded-lg shadow-lg p-6">
+      <div class="text-center mb-6">
+        <h1 class="text-4xl font-extrabold text-gray-800">📝 Prüfungsmodus: KPRIM Quiz</h1>
+        <p class="text-lg text-gray-600 mt-2">Teste dein Wissen im Prüfungsstil! 🚀</p>
+      </div>
+
+      <!-- Mode Selection -->
+      <div class="flex flex-wrap justify-center gap-4 mb-6">
+        <button onclick="window.location.href='/'"
+          class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">Chat Modus</button>
+        <button onclick="window.location.href='/flashcards'"
+          class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">Flashcards</button>
+        <button onclick="window.location.href='/kprim'"
+          class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition">KPRIM Quiz</button>
+        <button onclick="window.location.href='/lueckentext'"
+          class="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition">Lückentext</button>
+        <button onclick="window.location.href='/challenge'"
+          class="px-4 py-2 bg-pink-500 text-white rounded hover:bg-pink-600 transition">Challenge-Mode</button>
+      </div>
+
+      <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 rounded">
+        <p class="font-semibold">📌 Wie funktioniert das KPRIM Quiz?</p>
+        <p>Zu jeder Frage siehst du 4 Aussagen. Wähle für jede Aussage aus, ob sie <strong>richtig</strong> oder
+          <strong>falsch</strong> ist.</p>
+        <p>⚡ Punkte bekommst du nur, wenn du <strong>alle Aussagen einer Frage korrekt</strong> beantwortest – genau wie
+          in einer echten Prüfung!</p>
+        <p>🥇 Sammle Punkte, erhalte Badges und lasse dir nach jeder Frage ein kurzes Feedback vom Avatar geben.</p>
+      </div>
+
+      <form id="kprimForm" class="space-y-4">
+        <div>
+          <label class="block font-medium mb-1">📄 PDF-Datei auswählen:</label>
+          <input type="file" name="file" id="file" accept=".pdf" class="border rounded px-3 py-2 w-full" required />
+        </div>
+        <div>
+          <label class="block font-medium mb-1">🔢 Anzahl der KPRIM-Fragen:</label>
+          <input type="number" name="num_questions" id="num_questions" min="1" max="20" value="5"
+            class="border rounded px-3 py-2 w-full" required />
+        </div>
+        <button type="submit" class="bg-blue-500 text-white px-6 py-3 rounded hover:bg-blue-600 transition w-full">🚀
+          KPRIM Aufgaben generieren</button>
+      </form>
+
+      <div id="questionsArea" class="mt-8"></div>
+    </div>
+
+    <!-- Rechte Seite Avatar + Punkte -->
+    <div class="bg-white rounded-lg shadow-lg p-6 sticky top-10">
+      <h2 class="text-2xl font-bold mb-4">🎯 Dein Fortschritt</h2>
+      <p>Punkte: <span id="points">0</span></p>
+      <p id="badgeDisplay" class="mt-2 text-lg font-semibold text-yellow-600"></p>
+      <div class="flex justify-center mb-4">
+        <button id="startAvatar" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">Avatar
+          starten 🔊</button>
+      </div>
+      <video id="mediaElement" autoplay playsinline muted class="w-48 rounded-lg border mx-auto mt-6"></video>
+      <div id="avatarFeedback" class="mt-4 p-4 bg-gray-100 rounded text-gray-800 text-center"></div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('kprimForm');
+    const questionsArea = document.getElementById('questionsArea');
+    const pointsDisplay = document.getElementById('points');
+    const badgeDisplay = document.getElementById('badgeDisplay');
+    const avatarFeedback = document.getElementById('avatarFeedback');
+    const mediaElement = document.getElementById('mediaElement');
+    const startAvatarBtn = document.getElementById('startAvatar');
+    let points = 0;
+    let room;
+    let ws;
+    let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    const badges = [
+      { threshold: 5, label: '🥉 Starter' },
+      { threshold: 10, label: '🥈 Lern-Profi' },
+      { threshold: 20, label: '🥇 Mastermind' }
+    ];
+
+    function updateBadge() {
+      const badge = [...badges].reverse().find(b => points >= b.threshold);
+      badgeDisplay.innerText = badge ? `Badge: ${badge.label}` : '';
+    }
+
+    async function generateQuestions(e) {
+      e.preventDefault();
+      questionsArea.innerHTML = '⏳ Generiere KPRIM Aufgaben...';
+      const formData = new FormData(form);
+      const response = await fetch(`http://${window.location.host}/generate_kprim`, { method: 'POST', body: formData });
+      const data = await response.json();
+      if (data.questions) renderQuestions(data.questions);
+      else questionsArea.innerHTML = '⚠️ Fehler: ' + (data.error || 'Unbekannter Fehler.');
+    }
+
+    function renderQuestions(questions) {
+      let html = '';
+      questions.forEach((q, idx) => {
+        html += `<div class="mb-6 p-4 border rounded-lg">
+                 <h3 class="font-bold text-lg mb-2">${q.frage}</h3>
+                 <table class="w-full">
+                   <thead><tr><th class="text-left">Aussage</th><th>Richtig</th><th>Falsch</th></tr></thead>
+                   <tbody>`;
+        q.aussagen.forEach((aussage, aIdx) => {
+          html += `<tr>
+                   <td class="py-2">${aussage.text}</td>
+                   <td class="text-center"><input type="radio" name="q${idx}a${aIdx}" value="true"></td>
+                   <td class="text-center"><input type="radio" name="q${idx}a${aIdx}" value="false"></td>
+                 </tr>`;
+        });
+        html += `</tbody></table>
+                <button onclick="validateQuestion(${idx}, ${JSON.stringify(q.aussagen).replace(/"/g, '&quot;')})" class="mt-4 bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600 transition">✅ Validieren</button>
+              </div>`;
+      });
+      questionsArea.innerHTML = html;
+    }
+
+    function openKprimWebSocket() {
+      ws = new WebSocket(`ws://${window.location.host}/ws/kprim_avatar`);
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "config") setupAvatarStream(data.livekit_url, data.token);
+        else if (data.type === "gpt") avatarFeedback.innerText = `🗣️ Avatar sagt: ${data.message}`;
+        else if (data.type === "error") avatarFeedback.innerText = `⚠️ Fehler: ${data.message}`;
+      };
+      ws.onerror = (error) => console.error("WebSocket Fehler:", error);
+    }
+
+    function setupAvatarStream(livekit_url, token) {
+      if (room) room.disconnect();
+      room = new LivekitClient.Room();
+      const mediaStream = new MediaStream();
+      mediaElement.srcObject = mediaStream;
+
+      room.on(LivekitClient.RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === "video" || track.kind === "audio") mediaStream.addTrack(track.mediaStreamTrack);
+      });
+
+      room.connect(livekit_url, token).then(() => {
+        room.participants.forEach((participant) => {
+          participant.tracks.forEach((publication) => {
+            if (publication.isSubscribed && publication.track) mediaStream.addTrack(publication.track.mediaStreamTrack);
+          });
+        });
+      });
+    }
+
+    function sendAvatarFeedback(message) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "gpt", data: message })); // ✅ WICHTIG!
+      }
+    }
+
+    async function validateQuestion(qIdx, aussagen) {
+      let correct = true;
+      const frageText = document.querySelectorAll("#questionsArea > div")[qIdx].querySelector("h3").innerText;
+      let antwortenText = "";
+
+      aussagen.forEach((a, aIdx) => {
+        const selected = document.querySelector(`input[name='q${qIdx}a${aIdx}']:checked`);
+        const selectedText = selected ? (selected.value === "true" ? "richtig" : "falsch") : "nicht ausgewählt";
+        antwortenText += `Aussage: "${a.text}" → Ausgewählt: ${selectedText} | Korrekt: ${a.correct ? "richtig" : "falsch"}\n`;
+
+        if (!selected || String(a.correct) !== selected.value) correct = false;
+      });
+
+      const feedbackMessage = correct
+        ? `Die Antwort war richtig. Frage: "${frageText}". Aussagen und Bewertungen:\n${antwortenText}\nBitte gib ein motivierendes Feedback.`
+        : `Die Antwort war falsch. Frage: "${frageText}". Aussagen und Bewertungen:\n${antwortenText}\nBitte erkläre kurz, warum das so ist.`;
+
+      if (correct) {
+        points++;
+        pointsDisplay.innerText = points;
+        updateBadge();
+      }
+
+      sendAvatarFeedback(feedbackMessage);
+    }
+
+
+    form.addEventListener('submit', generateQuestions);
+    startAvatarBtn.addEventListener('click', async () => {
+      await audioContext.resume();
+      mediaElement.muted = false;
+      console.log("✅ AudioContext resumed, Avatar ist bereit.");
+    });
+    openKprimWebSocket();
+  </script>
+</body>
+
+</html>
